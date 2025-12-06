@@ -1,49 +1,103 @@
 import React, { useState, useEffect } from 'react';
 import { store } from '../services/mockStore';
-import { Swap, SwapStatus } from '../types';
-import { Clock, CheckCircle, XCircle, ArrowRight, Layout, MessageSquare, Briefcase, Calendar } from 'lucide-react';
+import { Swap, SwapStatus, SwapType, User, Skill, Project } from '../types';
+import { Clock, CheckCircle, XCircle, ArrowRight, Layout, MessageSquare, Briefcase, Calendar, FolderOpen, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import CollaborationWorkspace from '../components/CollaborationWorkspace';
 
 const SwapProgress: React.FC = () => {
   const currentUser = store.getCurrentUser();
   const navigate = useNavigate();
+  
   const [swaps, setSwaps] = useState<Swap[]>([]);
   const [activeTab, setActiveTab] = useState<'active' | 'pending' | 'history'>('active');
-  const [workspaceSwap, setWorkspaceSwap] = useState<Swap | null>(null);
+  
+  // Data caches
+  const [users, setUsers] = useState<Record<string, User>>({});
+  const [skills, setSkills] = useState<Record<string, Skill>>({});
+  const [projects, setProjects] = useState<Record<string, Project>>({});
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = async () => {
+    if (!currentUser) return;
+    
+    setLoading(true);
+    try {
+        const fetchedSwaps = await store.getSwapsForUser(currentUser.id);
+        setSwaps(fetchedSwaps);
+
+        const userIds = new Set<string>();
+        const skillIds = new Set<string>();
+        const projectIds = new Set<string>();
+
+        fetchedSwaps.forEach(s => {
+            userIds.add(s.requesterId);
+            userIds.add(s.receiverId);
+            if (s.offeredSkillId) skillIds.add(s.offeredSkillId);
+            if (s.requestedSkillId) skillIds.add(s.requestedSkillId);
+            if (s.offeredProjectId) projectIds.add(s.offeredProjectId);
+            if (s.requestedProjectId) projectIds.add(s.requestedProjectId);
+        });
+
+        const newUsers: Record<string, User> = {};
+        await Promise.all(Array.from(userIds).map(async (uid) => {
+            const u = await store.getUserById(uid);
+            if (u) newUsers[uid] = u;
+        }));
+
+        const newSkills: Record<string, Skill> = {};
+        await Promise.all(Array.from(skillIds).map(async (sid) => {
+            const s = await store.getSkillById(sid);
+            if (s) newSkills[sid] = s;
+        }));
+
+        const newProjects: Record<string, Project> = {};
+        await Promise.all(Array.from(projectIds).map(async (pid) => {
+            const p = await store.getProjectById(pid);
+            if (p) newProjects[pid] = p;
+        }));
+
+        setUsers(newUsers);
+        setSkills(newSkills);
+        setProjects(newProjects);
+    } catch (e) {
+        console.error("Failed to fetch swap progress data", e);
+    } finally {
+        setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (currentUser) {
-      setSwaps(store.getSwapsForUser(currentUser.id));
-    }
+    fetchData();
   }, [currentUser]);
 
   if (!currentUser) return <div>Please login.</div>;
 
-  const activeSwaps = swaps.filter(s => s.status === SwapStatus.ACCEPTED);
+  // Active includes ACCEPTED and IN_REVIEW
+  const activeSwaps = swaps.filter(s => s.status === SwapStatus.ACCEPTED || s.status === SwapStatus.IN_REVIEW);
   const pendingSwaps = swaps.filter(s => s.status === SwapStatus.PENDING);
   const historySwaps = swaps.filter(s => s.status === SwapStatus.COMPLETED || s.status === SwapStatus.DECLINED || s.status === SwapStatus.CANCELLED);
 
   const getPartner = (swap: Swap) => {
       const id = swap.requesterId === currentUser.id ? swap.receiverId : swap.requesterId;
-      return store.getUserById(id);
+      return users[id];
   }
 
   const getMyRole = (swap: Swap) => {
       return swap.requesterId === currentUser.id ? 'requester' : 'receiver';
   }
 
-  const handleDecline = (id: string) => {
-      store.declineSwap(id);
-      // Refresh local state
-      setSwaps(store.getSwapsForUser(currentUser.id));
+  const handleDecline = async (id: string) => {
+      await store.declineSwap(id);
+      fetchData();
   };
 
-  const handleAccept = (id: string) => {
-      store.acceptSwap(id);
-      setSwaps(store.getSwapsForUser(currentUser.id));
+  const handleAccept = async (id: string) => {
+      await store.acceptSwap(id);
+      fetchData();
       setActiveTab('active');
   };
+
+  if (loading && swaps.length === 0) return <div className="p-8 text-center">Loading swaps...</div>;
 
   return (
     <div className="space-y-8 animate-fade-in max-w-5xl mx-auto">
@@ -116,15 +170,25 @@ const SwapProgress: React.FC = () => {
 
             {(activeTab === 'active' ? activeSwaps : activeTab === 'pending' ? pendingSwaps : historySwaps).map(swap => {
                 const partner = getPartner(swap);
-                const offeredSkill = store.getSkillById(swap.offeredSkillId);
-                const requestedSkill = store.getSkillById(swap.requestedSkillId);
                 const isRequester = getMyRole(swap) === 'requester';
+                
+                let offeredTitle = "", requestedTitle = "";
+                if (swap.type === SwapType.SKILL) {
+                     offeredTitle = skills[swap.offeredSkillId!]?.title || "Skill";
+                     requestedTitle = skills[swap.requestedSkillId!]?.title || "Skill";
+                } else {
+                     offeredTitle = projects[swap.offeredProjectId!]?.title || "Project";
+                     requestedTitle = projects[swap.requestedProjectId!]?.title || "Project";
+                }
+
+                const showReviewButton = swap.status === SwapStatus.IN_REVIEW && isRequester;
+                const showWaitingStatus = swap.status === SwapStatus.IN_REVIEW && !isRequester;
 
                 return (
                     <div key={swap.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col md:flex-row gap-6 items-center">
                         {/* Partner Info */}
                         <div className="flex items-center gap-4 w-full md:w-1/4">
-                            <img src={partner?.avatar} className="w-14 h-14 rounded-full object-cover border-2 border-slate-100" />
+                            <img src={partner?.avatar} className="w-14 h-14 rounded-full object-cover border-2 border-slate-100" alt={partner?.name} />
                             <div>
                                 <h3 className="font-bold text-slate-800">{partner?.name}</h3>
                                 <p className="text-xs text-slate-500 flex items-center gap-1"><Calendar className="w-3 h-3" /> Started {new Date(swap.createdAt).toLocaleDateString()}</p>
@@ -133,10 +197,15 @@ const SwapProgress: React.FC = () => {
 
                         {/* Swap Details */}
                         <div className="flex-1 w-full bg-slate-50 rounded-xl p-4 flex flex-col md:flex-row items-center gap-4 relative">
+                            {swap.type === SwapType.PROJECT && (
+                                <div className="absolute top-2 right-2">
+                                     <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold">PROJECT</span>
+                                </div>
+                            )}
                             <div className="flex-1 text-center md:text-left">
                                 <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">You Give</p>
                                 <p className="font-semibold text-slate-800 text-sm">
-                                    {isRequester ? offeredSkill?.title : requestedSkill?.title}
+                                    {isRequester ? offeredTitle : requestedTitle}
                                 </p>
                             </div>
                             
@@ -147,7 +216,7 @@ const SwapProgress: React.FC = () => {
                             <div className="flex-1 text-center md:text-right">
                                 <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">You Get</p>
                                 <p className="font-semibold text-indigo-700 text-sm">
-                                    {isRequester ? requestedSkill?.title : offeredSkill?.title}
+                                    {isRequester ? requestedTitle : offeredTitle}
                                 </p>
                             </div>
                         </div>
@@ -156,55 +225,89 @@ const SwapProgress: React.FC = () => {
                         <div className="w-full md:w-auto flex flex-col gap-2 min-w-[140px]">
                             {activeTab === 'active' && (
                                 <>
-                                    <button 
-                                        onClick={() => setWorkspaceSwap(swap)}
-                                        className="w-full py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition flex items-center justify-center gap-2"
-                                    >
-                                        <Briefcase className="w-4 h-4" /> Workspace
-                                    </button>
+                                    {/* Workspace (Skills only) */}
+                                    {swap.type === SwapType.SKILL && swap.status === SwapStatus.ACCEPTED && (
+                                        <button 
+                                            onClick={() => navigate(`/workspace/${swap.id}`)}
+                                            className="w-full py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                                        >
+                                            <Briefcase className="w-4 h-4" /> Workspace
+                                        </button>
+                                    )}
+
+                                    {/* Project Deadline Info */}
+                                    {swap.type === SwapType.PROJECT && (
+                                        <div className="text-xs text-center text-slate-500 mb-1">
+                                            Deadline: {swap.deadline ? new Date(swap.deadline).toLocaleDateString() : 'N/A'}
+                                        </div>
+                                    )}
+                                    
+                                    {/* Chat Button */}
                                     <button 
                                         onClick={() => navigate('/messages')}
                                         className="w-full py-2 bg-white border border-slate-200 text-slate-600 text-sm font-bold rounded-lg hover:bg-slate-50 transition flex items-center justify-center gap-2"
                                     >
                                         <MessageSquare className="w-4 h-4" /> Chat
                                     </button>
+
+                                    {/* Complete / Review / Waiting Logic */}
+                                    {swap.status === SwapStatus.ACCEPTED && (
+                                        <button 
+                                            onClick={() => navigate(`/complete-swap/${swap.id}`)}
+                                            className="w-full py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition flex items-center justify-center gap-2"
+                                        >
+                                            <CheckCircle className="w-4 h-4" /> 
+                                            {swap.type === SwapType.PROJECT ? "Submit" : "Complete"}
+                                        </button>
+                                    )}
+
+                                    {showReviewButton && (
+                                        <button 
+                                            onClick={() => navigate(`/review-project/${swap.id}`)}
+                                            className="w-full py-2 bg-amber-500 text-white text-sm font-bold rounded-lg hover:bg-amber-600 transition flex items-center justify-center gap-2"
+                                        >
+                                            <Eye className="w-4 h-4" /> Review
+                                        </button>
+                                    )}
+
+                                    {showWaitingStatus && (
+                                        <div className="w-full py-2 bg-slate-100 text-slate-500 text-xs font-bold rounded-lg flex items-center justify-center gap-2 text-center">
+                                            <Clock className="w-4 h-4" /> Waiting for Review
+                                        </div>
+                                    )}
                                 </>
                             )}
                             
                             {activeTab === 'pending' && (
                                 <>
-                                    {!isRequester ? (
-                                        <>
-                                            <button 
-                                                onClick={() => handleAccept(swap.id)}
-                                                className="w-full py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition"
-                                            >
-                                                Accept Request
-                                            </button>
+                                    {getMyRole(swap) === 'requester' ? (
+                                        <div className="w-full py-2 bg-slate-100 text-slate-500 text-xs font-bold rounded-lg text-center">
+                                            Request Sent
+                                        </div>
+                                    ) : (
+                                        <div className="flex gap-2">
                                             <button 
                                                 onClick={() => handleDecline(swap.id)}
-                                                className="w-full py-2 bg-white border border-slate-200 text-slate-600 text-sm font-bold rounded-lg hover:bg-slate-50 transition"
+                                                className="flex-1 py-2 bg-white border border-slate-200 text-slate-500 text-sm font-bold rounded-lg hover:bg-slate-50 transition"
                                             >
                                                 Decline
                                             </button>
-                                        </>
-                                    ) : (
-                                        <div className="text-center">
-                                            <span className="text-xs bg-amber-100 text-amber-700 px-3 py-1 rounded-full font-bold">Waiting for approval</span>
+                                            <button 
+                                                onClick={() => handleAccept(swap.id)}
+                                                className="flex-1 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition shadow-md"
+                                            >
+                                                Accept
+                                            </button>
                                         </div>
                                     )}
                                 </>
                             )}
 
                             {activeTab === 'history' && (
-                                <div className="text-center w-full">
-                                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                                        swap.status === SwapStatus.COMPLETED 
-                                            ? 'bg-green-50 text-green-700 border-green-200' 
-                                            : 'bg-red-50 text-red-700 border-red-200'
-                                    }`}>
-                                        {swap.status}
-                                    </span>
+                                <div className={`w-full py-2 text-xs font-bold rounded-lg text-center ${
+                                    swap.status === SwapStatus.COMPLETED ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                    {swap.status}
                                 </div>
                             )}
                         </div>
@@ -212,15 +315,6 @@ const SwapProgress: React.FC = () => {
                 );
             })}
         </div>
-
-        {/* Live Workspace Modal */}
-        {workspaceSwap && (
-            <CollaborationWorkspace 
-                isOpen={!!workspaceSwap} 
-                onClose={() => setWorkspaceSwap(null)}
-                partnerName={getPartner(workspaceSwap)?.name || 'Partner'}
-            />
-        )}
     </div>
   );
 };

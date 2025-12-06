@@ -34,6 +34,17 @@ export interface Skill {
   status: SkillStatus;
 }
 
+export interface Project {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  requirements: string;
+  fileUrl: string; // Mock URL to the project file
+  category: SkillCategory;
+  createdAt: Date;
+}
+
 export interface Badge {
   id: string;
   name: string;
@@ -47,9 +58,11 @@ export interface User {
   email: string;
   avatar: string;
   bio: string;
+  jobTitle?: string; // New field for CV/Job Title
   location: string;
   skillsOffered: Skill[];
   skillsWanted: string[];
+  projects: Project[]; // New: Users can have projects
   rating: number;
   reviewCount: number;
   isOnline: boolean;
@@ -64,20 +77,45 @@ export enum SwapStatus {
   PENDING = 'PENDING',
   ACCEPTED = 'ACCEPTED',
   DECLINED = 'DECLINED',
+  IN_REVIEW = 'IN_REVIEW', // New intermediate status for projects
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED'
+}
+
+export enum SwapType {
+  SKILL = 'SKILL',
+  PROJECT = 'PROJECT'
 }
 
 export interface Swap {
   id: string;
   requesterId: string;
   receiverId: string;
-  offeredSkillId: string;
-  requestedSkillId: string;
+  
+  // Type of swap
+  type: SwapType; 
+
+  // For Skill Swaps
+  offeredSkillId?: string;
+  requestedSkillId?: string;
+
+  // For Project Swaps
+  offeredProjectId?: string;
+  requestedProjectId?: string;
+  deadline?: Date; // Project swaps have deadlines
+
   status: SwapStatus;
   createdAt: Date;
   updatedAt: Date;
   messages: Message[];
+  
+  // Completion details
+  completionProof?: string; // URL to image or project file
+  completionNote?: string;
+  
+  // Review details
+  rating?: number;
+  reviewComment?: string;
 }
 
 export interface Message {

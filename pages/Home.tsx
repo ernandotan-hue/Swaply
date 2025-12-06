@@ -1,16 +1,43 @@
-import React from 'react';
-import { ArrowRight, Star, Zap, LogIn } from 'lucide-react';
+
+import React, { useEffect, useState } from 'react';
+import { ArrowRight, Star, Zap, LogIn, Twitter, Instagram, Linkedin, Globe, Briefcase, Loader } from 'lucide-react';
 import { store } from '../services/mockStore';
-import { SkillCategory } from '../types';
+import { SkillCategory, Skill, User } from '../types';
 import { Link } from 'react-router-dom';
 
 const Home: React.FC = () => {
-  const skills = store.getSkills();
-  const featuredSkills = skills.slice(0, 4);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [users, setUsers] = useState<Record<string, User>>({});
+  const [loading, setLoading] = useState(true);
   const currentUser = store.getCurrentUser();
 
+  useEffect(() => {
+    const fetchData = async () => {
+        try {
+            const fetchedSkills = await store.getSkills();
+            setSkills(fetchedSkills);
+            
+            // Fetch users for the skills
+            const userIds = Array.from(new Set(fetchedSkills.map(s => s.userId)));
+            const userMap: Record<string, User> = {};
+            await Promise.all(userIds.map(async (uid) => {
+                const u = await store.getUserById(uid);
+                if (u) userMap[uid] = u;
+            }));
+            setUsers(userMap);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+    fetchData();
+  }, []);
+
+  const featuredSkills = skills.slice(0, 4);
+
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8 animate-fade-in flex flex-col min-h-[80vh]">
       {/* Hero Section */}
       <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-3xl p-8 md:p-12 text-white shadow-xl shadow-indigo-200 relative overflow-hidden">
         <div className="relative z-10 max-w-2xl">
@@ -64,7 +91,7 @@ const Home: React.FC = () => {
       </div>
 
       {/* Featured Skills */}
-      <div className="space-y-4">
+      <div className="space-y-4 flex-1">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold text-slate-800">Featured Swaps</h2>
           <Link to="/search" className="text-indigo-600 font-medium flex items-center gap-1 hover:underline">
@@ -72,40 +99,63 @@ const Home: React.FC = () => {
           </Link>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featuredSkills.map((skill) => {
-            const owner = store.getUserById(skill.userId);
-            return (
-              <div key={skill.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-lg transition-all group">
-                <div className="relative h-48 overflow-hidden">
-                  <img src={skill.image} alt={skill.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-bold text-slate-700 shadow-sm">
-                    {skill.category}
-                  </div>
-                </div>
-                <div className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <img src={owner?.avatar} alt={owner?.name} className="w-8 h-8 rounded-full border border-slate-100" />
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900 truncate">{owner?.name}</p>
-                        <div className="flex items-center gap-1 text-xs text-amber-500">
-                             <Star className="w-3 h-3 fill-current" />
-                             <span>{owner?.rating}</span>
+        {loading ? (
+             <div className="text-center py-10"><Loader className="w-8 h-8 animate-spin mx-auto text-indigo-500"/></div>
+        ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featuredSkills.map((skill) => {
+                const owner = users[skill.userId];
+                return (
+                <div key={skill.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-lg transition-all group">
+                    <div className="relative h-48 overflow-hidden">
+                    <img src={skill.image} alt={skill.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-bold text-slate-700 shadow-sm">
+                        {skill.category}
+                    </div>
+                    </div>
+                    <div className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                        <img src={owner?.avatar || 'https://via.placeholder.com/32'} alt={owner?.name} className="w-8 h-8 rounded-full border border-slate-100" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-900 truncate">{owner?.name || 'Unknown User'}</p>
+                            {owner?.jobTitle ? (
+                                <p className="text-xs text-slate-500 truncate flex items-center gap-1">
+                                    <Briefcase className="w-3 h-3" /> {owner.jobTitle}
+                                </p>
+                            ) : (
+                                <div className="flex items-center gap-1 text-xs text-amber-500">
+                                    <Star className="w-3 h-3 fill-current" />
+                                    <span>{owner?.rating || 0}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
-                  </div>
-                  <h3 className="font-bold text-slate-800 mb-1 line-clamp-1">{skill.title}</h3>
-                  <p className="text-sm text-slate-500 line-clamp-2 mb-4">{skill.description}</p>
-                  
-                  <Link to={`/search?skill=${skill.id}`} className="block w-full text-center bg-indigo-50 text-indigo-700 font-semibold py-2 rounded-lg hover:bg-indigo-100 transition-colors">
-                    Request Swap
-                  </Link>
+                    <h3 className="font-bold text-slate-800 mb-1 line-clamp-1">{skill.title}</h3>
+                    <p className="text-sm text-slate-500 line-clamp-2 mb-4">{skill.description}</p>
+                    
+                    <Link to={`/search?skill=${skill.id}`} className="block w-full text-center bg-indigo-50 text-indigo-700 font-semibold py-2 rounded-lg hover:bg-indigo-100 transition-colors">
+                        Request Swap
+                    </Link>
+                    </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+                );
+            })}
+            </div>
+        )}
       </div>
+
+      <footer className="mt-12 border-t border-slate-200 pt-10 pb-6 text-slate-500">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+              <div className="col-span-1 md:col-span-1">
+                   <div className="flex items-center gap-2 mb-4">
+                        <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">S</div>
+                        <h2 className="text-xl font-bold text-slate-800">Swaply</h2>
+                   </div>
+                   <p className="text-sm mb-4">The #1 platform for bartering skills.</p>
+              </div>
+          </div>
+          <p className="text-xs text-center">&copy; {new Date().getFullYear()} Swaply Inc.</p>
+      </footer>
     </div>
   );
 };

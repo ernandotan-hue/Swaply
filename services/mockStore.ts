@@ -1,430 +1,632 @@
+import { User, Skill, Swap, SwapStatus, SkillCategory, Message, SkillLevel, SkillStatus, Project, SwapType } from '../types';
+import { auth, db } from './firebaseConfig';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, Timestamp, arrayUnion, orderBy } from 'firebase/firestore';
 
-import { User, Skill, Swap, SwapStatus, SkillCategory, Message, SkillLevel, SkillStatus } from '../types';
-
-// Initial Mock Data
-const MOCK_SKILLS: Skill[] = [
-  {
-    id: 's1',
-    userId: 'u1',
-    title: 'UI/UX Design Masterclass',
-    description: 'I will teach you the fundamentals of Figma and design thinking.',
-    category: SkillCategory.DESIGN,
-    image: 'https://picsum.photos/id/1/400/300',
-    level: SkillLevel.EXPERT,
-    experience: 5,
-    status: SkillStatus.VERIFIED
-  },
-  {
-    id: 's2',
-    userId: 'u2',
-    title: 'React & Node.js Mentorship',
-    description: 'Code review, architecture planning, and debugging help.',
-    category: SkillCategory.DEVELOPMENT,
-    image: 'https://picsum.photos/id/60/400/300',
-    level: SkillLevel.EXPERT,
-    experience: 4,
-    status: SkillStatus.VERIFIED
-  },
-  {
-    id: 's3',
-    userId: 'u3',
-    title: 'Acoustic Guitar Basics',
-    description: 'Learn chords, strumming patterns, and your first song.',
-    category: SkillCategory.MUSIC,
-    image: 'https://picsum.photos/id/145/400/300',
-    level: SkillLevel.INTERMEDIATE,
-    experience: 3,
-    status: SkillStatus.VERIFIED
-  },
-  {
-    id: 's4',
-    userId: 'u1',
-    title: 'Logo Design',
-    description: 'I will design a professional vector logo for your brand.',
-    category: SkillCategory.DESIGN,
-    image: 'https://picsum.photos/id/50/400/300',
-    level: SkillLevel.EXPERT,
-    experience: 5,
-    status: SkillStatus.VERIFIED
-  }
-];
-
-const getFutureDate = (months: number) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + months);
-    return d;
+// --- Helper Functions ---
+const isFirebaseReady = () => {
+    return auth && db && !!auth.app && !!db.app;
 };
 
-const MOCK_USERS: User[] = [
-  {
-    id: 'u1',
-    name: 'Alex Rivera',
-    email: 'alex@example.com',
-    avatar: 'https://picsum.photos/id/64/200/200',
-    bio: 'UX/UI Designer with 5 years of experience. I love creating intuitive interfaces.',
-    location: 'San Francisco, CA',
-    skillsOffered: [],
-    skillsWanted: ['Guitar', 'Spanish'],
-    rating: 4.8,
-    reviewCount: 42,
-    isOnline: true,
-    lastSeen: new Date(),
-    points: 1250,
-    badges: ['Top Swapper', 'Verified Pro'],
-    coins: 2,
-    nextFreeCoinDate: getFutureDate(1)
-  },
-  {
-    id: 'u2',
-    name: 'Sarah Chen',
-    email: 'sarah@example.com',
-    avatar: 'https://picsum.photos/id/65/200/200',
-    bio: 'Full Stack Developer & AI Enthusiast. Can help you build your MVP.',
-    location: 'New York, NY',
-    skillsOffered: [],
-    skillsWanted: ['Cooking', 'Photography'],
-    rating: 4.9,
-    reviewCount: 120,
-    isOnline: false,
-    lastSeen: new Date(Date.now() - 3600000),
-    points: 3400,
-    badges: ['5-Star Provider', 'Community Pillar'],
-    coins: 5,
-    nextFreeCoinDate: getFutureDate(1)
-  },
-  {
-    id: 'u3',
-    name: 'Miguel Rodriguez',
-    email: 'miguel@example.com',
-    avatar: 'https://picsum.photos/id/91/200/200',
-    bio: 'Professional Guitarist and Music Theory teacher.',
-    location: 'Austin, TX',
-    skillsOffered: [],
-    skillsWanted: ['Web Design', 'SEO'],
-    rating: 4.7,
-    reviewCount: 15,
-    isOnline: true,
-    lastSeen: new Date(),
-    points: 450,
-    badges: ['Rising Star'],
-    coins: 0,
-    nextFreeCoinDate: new Date(Date.now() + 10000) // For testing: due very soon
-  }
+const convertTimestamps = (data: any): any => {
+    if (!data) return data;
+    if (typeof data === 'object') {
+        if (data.toDate && typeof data.toDate === 'function') {
+            return data.toDate();
+        }
+        // Handle arrays
+        if (Array.isArray(data)) {
+            return data.map(item => convertTimestamps(item));
+        }
+        // Handle nested objects
+        const newData: any = {};
+        for (const key in data) {
+            newData[key] = convertTimestamps(data[key]);
+        }
+        return newData;
+    }
+    return data;
+};
+
+// --- Mock Data Fallback ---
+let MOCK_USERS: User[] = [
+    {
+        id: 'user_1',
+        name: 'John Doe',
+        email: 'john@example.com',
+        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=John',
+        bio: 'Full Stack Developer',
+        location: 'New York',
+        skillsOffered: [],
+        skillsWanted: [],
+        projects: [],
+        rating: 4.8,
+        reviewCount: 12,
+        isOnline: true,
+        lastSeen: new Date(),
+        points: 150,
+        badges: ['Early Adopter'],
+        coins: 5,
+        nextFreeCoinDate: new Date()
+    },
+    {
+        id: 'user_2',
+        name: 'Jane Smith',
+        email: 'jane@example.com',
+        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Jane',
+        bio: 'Graphic Designer',
+        location: 'London',
+        skillsOffered: [],
+        skillsWanted: [],
+        projects: [],
+        rating: 5.0,
+        reviewCount: 8,
+        isOnline: false,
+        lastSeen: new Date(),
+        points: 200,
+        badges: [],
+        coins: 10,
+        nextFreeCoinDate: new Date()
+    }
 ];
 
-// Hydrate users with skills
-MOCK_USERS.forEach(user => {
-  user.skillsOffered = MOCK_SKILLS.filter(s => s.userId === user.id);
-});
+let MOCK_SKILLS: Skill[] = [
+    {
+        id: 'skill_1',
+        userId: 'user_1',
+        title: 'React Development',
+        description: 'I can teach you React and TypeScript.',
+        category: SkillCategory.DEVELOPMENT,
+        image: 'https://picsum.photos/400/300',
+        level: SkillLevel.EXPERT,
+        experience: 5,
+        status: SkillStatus.VERIFIED
+    },
+    {
+        id: 'skill_2',
+        userId: 'user_2',
+        title: 'Logo Design',
+        description: 'Professional logo design services.',
+        category: SkillCategory.DESIGN,
+        image: 'https://picsum.photos/401/300',
+        level: SkillLevel.INTERMEDIATE,
+        experience: 3,
+        status: SkillStatus.VERIFIED
+    }
+];
 
-class MockStore {
-  private users: User[] = MOCK_USERS;
-  private swaps: Swap[] = [];
-  private skills: Skill[] = MOCK_SKILLS;
+let MOCK_PROJECTS: Project[] = [];
+let MOCK_SWAPS: Swap[] = [];
+
+class StoreService {
   private currentUser: User | null = null;
+  private listeners: Function[] = [];
 
   constructor() {
-    const storedUser = localStorage.getItem('swaply_currentUser');
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        // Re-hydrate dates because JSON parses them as strings
-        if (parsed.nextFreeCoinDate) parsed.nextFreeCoinDate = new Date(parsed.nextFreeCoinDate);
-        
-        // Find fresh ref from memory or use parsed
-        const found = this.users.find(u => u.id === parsed.id);
-        if (found) {
-            this.currentUser = found;
-            this.checkFreeCoinEligibility(this.currentUser);
-        } else {
-            this.currentUser = parsed;
-        }
-      } catch (e) {
-        localStorage.removeItem('swaply_currentUser');
-      }
-    }
+     if (isFirebaseReady()) {
+         onAuthStateChanged(auth, async (firebaseUser) => {
+             if (firebaseUser) {
+                 try {
+                     const docRef = doc(db, 'users', firebaseUser.uid);
+                     const docSnap = await getDoc(docRef);
+                     if (docSnap.exists()) {
+                         this.currentUser = { id: docSnap.id, ...convertTimestamps(docSnap.data()) } as User;
+                     }
+                 } catch (e) {
+                     console.error("Error fetching user profile:", e);
+                 }
+             } else {
+                 this.currentUser = null;
+             }
+             this.notifyListeners();
+         });
+     } else {
+         // Fallback to local storage for mock mode
+         try {
+            const storedUid = localStorage.getItem('swaply_uid');
+            if (storedUid) {
+                this.currentUser = MOCK_USERS.find(u => u.id === storedUid) || null;
+            }
+         } catch (e) {
+             console.warn("LocalStorage not available");
+         }
+     }
   }
 
-  // Check if it's time to award a monthly coin
-  private checkFreeCoinEligibility(user: User) {
-      const now = new Date();
-      if (user.nextFreeCoinDate && now > user.nextFreeCoinDate) {
-          user.coins += 1;
-          
-          // Set next date to 1 month from NOW (or from previous date to keep cycle? Let's do NOW for simplicity)
-          const nextDate = new Date();
-          nextDate.setMonth(nextDate.getMonth() + 1);
-          user.nextFreeCoinDate = nextDate;
-          
-          this.saveUser(user);
-          return true;
-      }
-      return false;
-  }
-
-  private saveUser(user: User) {
-      localStorage.setItem('swaply_currentUser', JSON.stringify(user));
-  }
-
-  login(email: string): { success: boolean, user?: User, message?: string } {
-    const user = this.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (user) {
-      this.currentUser = user;
-      this.checkFreeCoinEligibility(user);
-      this.saveUser(user);
-      return { success: true, user };
-    }
-    return { success: false, message: 'User not found' };
-  }
-
-  register(data: { name: string; email: string; bio: string; location: string }): User {
-      const nextDate = new Date();
-      nextDate.setMonth(nextDate.getMonth() + 1);
-
-      const newUser: User = {
-          id: `u_${Date.now()}`,
-          name: data.name,
-          email: data.email,
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
-          bio: data.bio,
-          location: data.location,
-          skillsOffered: [],
-          skillsWanted: [],
-          rating: 0,
-          reviewCount: 0,
-          isOnline: true,
-          lastSeen: new Date(),
-          points: 0,
-          badges: ['Newcomer'],
-          coins: 1, // Start with 1 free coin
-          nextFreeCoinDate: nextDate
+  subscribe(listener: Function) {
+      this.listeners.push(listener);
+      listener(this.currentUser);
+      return () => {
+          this.listeners = this.listeners.filter(l => l !== listener);
       };
-      
-      this.users.push(newUser);
-      this.currentUser = newUser;
-      this.saveUser(newUser);
-      return newUser;
   }
 
-  logout() {
-    this.currentUser = null;
-    localStorage.removeItem('swaply_currentUser');
+  private notifyListeners() {
+      this.listeners.forEach(l => l(this.currentUser));
   }
 
   getCurrentUser(): User | null {
-    if (this.currentUser) {
-        // Always do a quick check on access to ensure UI has latest dates
-        this.checkFreeCoinEligibility(this.currentUser);
-    }
-    return this.currentUser;
+      return this.currentUser;
   }
 
-  addCoins(amount: number) {
-      if (this.currentUser) {
-          this.currentUser.coins += amount;
-          this.saveUser(this.currentUser);
-      }
-  }
-
-  getUsers(): User[] {
-    return this.users;
-  }
-
-  getSkills(): Skill[] {
-    return this.skills.filter(s => s.status === SkillStatus.VERIFIED);
-  }
-
-  getAllSkillsRaw(): Skill[] {
-    return this.skills;
-  }
-
-  getSwapsForUser(userId: string): Swap[] {
-    return this.swaps.filter(s => s.requesterId === userId || s.receiverId === userId);
-  }
-
-  // Check if a user is currently locked in an active swap
-  isUserBusy(userId: string): boolean {
-      return this.swaps.some(s => 
-          (s.requesterId === userId || s.receiverId === userId) && 
-          s.status === SwapStatus.ACCEPTED
-      );
-  }
-
-  createSwapRequest(requesterId: string, receiverId: string, requestedSkillId: string, offeredSkillId: string): Swap | null {
-    // 1. Check Coins
-    const requester = this.getUserById(requesterId);
-    if (!requester || requester.coins < 1) {
-        return null; // Insufficient coins
-    }
-
-    // Check if swap already exists between these users for these skills
-    const existing = this.swaps.find(s => 
-        s.requesterId === requesterId && s.receiverId === receiverId && 
-        s.status === SwapStatus.PENDING
-    );
-
-    if (existing) return existing;
-
-    // Deduct Coin
-    requester.coins -= 1;
-    if (this.currentUser && this.currentUser.id === requesterId) {
-        this.saveUser(requester);
-    }
-
-    const newSwap: Swap = {
-      id: `swap_${Date.now()}`,
-      requesterId,
-      receiverId,
-      requestedSkillId,
-      offeredSkillId,
-      status: SwapStatus.PENDING,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      messages: []
-    };
-    
-    // Inject initial Swap Request Message
-    const offeredSkill = this.getSkillById(offeredSkillId);
-    
-    const requestMsg: Message = {
-        id: `msg_req_${Date.now()}`,
-        senderId: requesterId,
-        text: `LOG: Swap Request initiated: ${offeredSkill?.title}`,
-        timestamp: new Date(),
-        type: 'swap_request',
-        status: 'sent',
-        swapRequestId: newSwap.id
-    };
-    newSwap.messages.push(requestMsg);
-
-    this.swaps.push(newSwap);
-    return newSwap;
-  }
-
-  acceptSwap(swapId: string): { success: boolean, message: string } {
-      const swap = this.swaps.find(s => s.id === swapId);
-      if (!swap) return { success: false, message: 'Swap not found' };
-
-      // LOCKING LOGIC: Users cannot accept a swap if they are already in an active one
-      if (this.isUserBusy(swap.requesterId)) return { success: false, message: 'The other user is currently busy with another swap.' };
-      if (this.isUserBusy(swap.receiverId)) return { success: false, message: 'You are currently busy with another swap. Complete it first!' };
-
-      swap.status = SwapStatus.ACCEPTED;
-      swap.updatedAt = new Date();
-      
-      this.sendMessage(swapId, 'system', 'Swap Accepted! You are now locked into this collaboration until completion.');
-      return { success: true, message: 'Swap Accepted' };
-  }
-
-  declineSwap(swapId: string) {
-      const swap = this.swaps.find(s => s.id === swapId);
-      if (swap) {
-          swap.status = SwapStatus.DECLINED;
-          swap.updatedAt = new Date();
-          this.sendMessage(swapId, 'system', 'Swap Request Declined.');
-      }
-  }
-
-  completeSwap(swapId: string) {
-      const swap = this.swaps.find(s => s.id === swapId);
-      if (swap && swap.status === SwapStatus.ACCEPTED) {
-          swap.status = SwapStatus.COMPLETED;
-          swap.updatedAt = new Date();
-          
-          // Gamification: Award Points
-          const requester = this.getUserById(swap.requesterId);
-          const receiver = this.getUserById(swap.receiverId);
-          
-          if (requester) {
-              requester.points += 100;
-              this.checkBadges(requester);
+  async login(email: string, password: string): Promise<{ success: boolean, user?: User, message?: string }> {
+      if (isFirebaseReady()) {
+          try {
+              const cred = await signInWithEmailAndPassword(auth, email, password);
+              const docRef = doc(db, 'users', cred.user.uid);
+              const docSnap = await getDoc(docRef);
+              if (docSnap.exists()) {
+                  this.currentUser = { id: docSnap.id, ...convertTimestamps(docSnap.data()) } as User;
+                  this.notifyListeners();
+                  return { success: true, user: this.currentUser };
+              } else {
+                  return { success: false, message: 'User profile not found.' };
+              }
+          } catch (e: any) {
+              return { success: false, message: e.message };
           }
-          if (receiver) {
-              receiver.points += 100;
-              this.checkBadges(receiver);
+      } else {
+          // Mock Login
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const user = MOCK_USERS.find(u => u.email === email);
+          if (user) {
+              this.currentUser = user;
+              localStorage.setItem('swaply_uid', user.id);
+              this.notifyListeners();
+              return { success: true, user };
           }
-
-          this.sendMessage(swapId, 'system', 'Swap Completed! +100 Points awarded to both users.');
+          return { success: false, message: 'Invalid credentials (Mock Mode).' };
       }
   }
 
-  private checkBadges(user: User) {
-      const completedSwaps = this.swaps.filter(s => 
-          (s.requesterId === user.id || s.receiverId === user.id) && 
-          s.status === SwapStatus.COMPLETED
-      ).length;
-
-      if (completedSwaps >= 1 && !user.badges.includes('First Swap')) {
-          user.badges.push('First Swap');
-      }
-      if (completedSwaps >= 5 && !user.badges.includes('Top Swapper')) {
-          user.badges.push('Top Swapper');
-      }
-      if (user.points > 1000 && !user.badges.includes('Skill Master')) {
-          user.badges.push('Skill Master');
-      }
-  }
-
-  sendMessage(swapId: string, senderId: string, text: string, imageUrl?: string): Message {
-    const swap = this.swaps.find(s => s.id === swapId);
-    if (!swap) throw new Error("Swap not found");
-
-    const message: Message = {
-      id: `msg_${Date.now()}`,
-      senderId,
-      text,
-      type: senderId === 'system' ? 'system' : (imageUrl ? 'image' : 'text'),
-      imageUrl,
-      timestamp: new Date(),
-      status: 'sent'
-    };
-    
-    swap.messages.push(message);
-    return message;
+  async register(data: { name: string; email: string; bio: string; location: string }): Promise<User> {
+       if (isFirebaseReady()) {
+           const cred = await createUserWithEmailAndPassword(auth, data.email, 'password123'); // Simple default password for demo flow or needs param
+           // Note: In a real app, pass password from form. For now, assuming standard flow.
+           
+           const newUser: User = {
+               id: cred.user.uid,
+               name: data.name,
+               email: data.email,
+               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
+               bio: data.bio,
+               location: data.location,
+               skillsOffered: [],
+               skillsWanted: [],
+               projects: [],
+               rating: 0,
+               reviewCount: 0,
+               isOnline: true,
+               lastSeen: new Date(),
+               points: 50, // Bonus for signup
+               badges: [],
+               coins: 3,
+               nextFreeCoinDate: new Date()
+           };
+           
+           await setDoc(doc(db, 'users', cred.user.uid), newUser);
+           this.currentUser = newUser;
+           this.notifyListeners();
+           return newUser;
+       } else {
+           await new Promise(resolve => setTimeout(resolve, 500));
+           const newUser: User = {
+               id: `user_${Date.now()}`,
+               name: data.name,
+               email: data.email,
+               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
+               bio: data.bio,
+               location: data.location,
+               skillsOffered: [],
+               skillsWanted: [],
+               projects: [],
+               rating: 0,
+               reviewCount: 0,
+               isOnline: true,
+               lastSeen: new Date(),
+               points: 0,
+               badges: [],
+               coins: 1,
+               nextFreeCoinDate: new Date()
+           };
+           MOCK_USERS.push(newUser);
+           this.currentUser = newUser;
+           localStorage.setItem('swaply_uid', newUser.id);
+           this.notifyListeners();
+           return newUser;
+       }
   }
   
-  addSkill(userId: string, skillData: Partial<Skill>): Skill {
-      const newSkill: Skill = {
-          id: `s_${Date.now()}`,
+  // Method to support password in register (overloading loosely for JS/TS)
+  async registerWithPassword(data: { name: string; email: string; bio: string; location: string }, password?: string): Promise<User> {
+      if (isFirebaseReady() && password) {
+          const cred = await createUserWithEmailAndPassword(auth, data.email, password);
+           const newUser: User = {
+               id: cred.user.uid,
+               name: data.name,
+               email: data.email,
+               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
+               bio: data.bio,
+               location: data.location,
+               skillsOffered: [],
+               skillsWanted: [],
+               projects: [],
+               rating: 0,
+               reviewCount: 0,
+               isOnline: true,
+               lastSeen: new Date(),
+               points: 50,
+               badges: [],
+               coins: 3,
+               nextFreeCoinDate: new Date()
+           };
+           await setDoc(doc(db, 'users', cred.user.uid), newUser);
+           this.currentUser = newUser;
+           this.notifyListeners();
+           return newUser;
+      }
+      return this.register(data);
+  }
+
+  async logout() {
+      if (isFirebaseReady()) {
+          await signOut(auth);
+      } else {
+          this.currentUser = null;
+          localStorage.removeItem('swaply_uid');
+      }
+      this.notifyListeners();
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+      if (isFirebaseReady()) {
+          try {
+              const snap = await getDoc(doc(db, 'users', id));
+              if (snap.exists()) return { id: snap.id, ...convertTimestamps(snap.data()) } as User;
+          } catch (e) { console.error(e); }
+          return undefined;
+      }
+      return MOCK_USERS.find(u => u.id === id);
+  }
+
+  async updateUser(userId: string, updates: Partial<User>) {
+      if (isFirebaseReady()) {
+          await updateDoc(doc(db, 'users', userId), updates);
+          // Local update will happen via listener, but we can optimistically update
+          if (this.currentUser?.id === userId) {
+              this.currentUser = { ...this.currentUser, ...updates };
+              this.notifyListeners();
+          }
+      } else {
+          const idx = MOCK_USERS.findIndex(u => u.id === userId);
+          if (idx !== -1) {
+              MOCK_USERS[idx] = { ...MOCK_USERS[idx], ...updates };
+              if (this.currentUser?.id === userId) {
+                  this.currentUser = MOCK_USERS[idx];
+                  this.notifyListeners();
+              }
+          }
+      }
+  }
+  
+  async addCoins(amount: number) {
+      if (this.currentUser) {
+          if (isFirebaseReady()) {
+              // Should use transaction/increment in real app
+              await this.updateUser(this.currentUser.id, { coins: (this.currentUser.coins || 0) + amount });
+          } else {
+              await this.updateUser(this.currentUser.id, { coins: (this.currentUser.coins || 0) + amount });
+          }
+      }
+  }
+
+  // --- SKILLS ---
+
+  async getSkills(): Promise<Skill[]> {
+      if (isFirebaseReady()) {
+          const q = query(collection(db, 'skills'), where('status', '==', SkillStatus.VERIFIED));
+          const snap = await getDocs(q);
+          return snap.docs.map(d => ({ id: d.id, ...convertTimestamps(d.data()) } as Skill));
+      }
+      return MOCK_SKILLS.filter(s => s.status === SkillStatus.VERIFIED);
+  }
+
+  async getUserSkills(userId: string): Promise<Skill[]> {
+      if (isFirebaseReady()) {
+          const q = query(collection(db, 'skills'), where('userId', '==', userId));
+          const snap = await getDocs(q);
+          return snap.docs.map(d => ({ id: d.id, ...convertTimestamps(d.data()) } as Skill));
+      }
+      return MOCK_SKILLS.filter(s => s.userId === userId);
+  }
+  
+  async getSkillById(id: string): Promise<Skill | undefined> {
+      if (isFirebaseReady()) {
+          const snap = await getDoc(doc(db, 'skills', id));
+          if (snap.exists()) return { id: snap.id, ...convertTimestamps(snap.data()) } as Skill;
+          return undefined;
+      }
+      return MOCK_SKILLS.find(s => s.id === id);
+  }
+
+  async addSkill(userId: string, skillData: Partial<Skill>): Promise<Skill> {
+      const newSkill: any = {
           userId,
-          title: skillData.title || 'Untitled Skill',
+          title: skillData.title || 'Untitled',
           description: skillData.description || '',
           category: skillData.category || SkillCategory.OTHER,
           image: skillData.image || 'https://picsum.photos/400/300',
           level: skillData.level || SkillLevel.BEGINNER,
           experience: skillData.experience || 0,
-          status: SkillStatus.PENDING
+          status: SkillStatus.PENDING, // Always pending initially
+          createdAt: new Date()
       };
-      
-      this.skills.push(newSkill);
-      const user = this.getUserById(userId);
-      if (user) {
-          user.skillsOffered.push(newSkill);
+
+      if (isFirebaseReady()) {
+          const docRef = await addDoc(collection(db, 'skills'), newSkill);
+          return { id: docRef.id, ...newSkill } as Skill;
+      } else {
+          const s = { ...newSkill, id: `skill_${Date.now()}` } as Skill;
+          MOCK_SKILLS.push(s);
+          return s;
       }
-      return newSkill;
   }
 
-  // Admin function simulation
-  verifySkill(skillId: string) {
-      const skill = this.skills.find(s => s.id === skillId);
-      if (skill) {
-          skill.status = SkillStatus.VERIFIED;
-          // Update nested user skill ref
-          const user = this.getUserById(skill.userId);
-          if (user) {
-              const userSkill = user.skillsOffered.find(s => s.id === skillId);
-              if (userSkill) userSkill.status = SkillStatus.VERIFIED;
+  async verifySkill(skillId: string) {
+      if (isFirebaseReady()) {
+          await updateDoc(doc(db, 'skills', skillId), { status: SkillStatus.VERIFIED });
+      } else {
+          const s = MOCK_SKILLS.find(sk => sk.id === skillId);
+          if (s) s.status = SkillStatus.VERIFIED;
+      }
+  }
+
+  // --- PROJECTS ---
+
+  async getProjects(): Promise<Project[]> {
+      if (isFirebaseReady()) {
+           const snap = await getDocs(collection(db, 'projects'));
+           return snap.docs.map(d => ({ id: d.id, ...convertTimestamps(d.data()) } as Project));
+      }
+      return MOCK_PROJECTS;
+  }
+
+  async getProjectById(id: string): Promise<Project | undefined> {
+      if (isFirebaseReady()) {
+          const snap = await getDoc(doc(db, 'projects', id));
+          if (snap.exists()) return { id: snap.id, ...convertTimestamps(snap.data()) } as Project;
+          return undefined;
+      }
+      return MOCK_PROJECTS.find(p => p.id === id);
+  }
+
+  async addProject(userId: string, projectData: Partial<Project>): Promise<Project> {
+      const newProject: any = {
+          userId,
+          title: projectData.title || 'Untitled',
+          description: projectData.description || '',
+          requirements: projectData.requirements || '',
+          fileUrl: projectData.fileUrl || '#',
+          category: projectData.category || SkillCategory.OTHER,
+          createdAt: new Date()
+      };
+
+      if (isFirebaseReady()) {
+          const docRef = await addDoc(collection(db, 'projects'), newProject);
+          return { id: docRef.id, ...newProject } as Project;
+      } else {
+          const p = { ...newProject, id: `proj_${Date.now()}` } as Project;
+          MOCK_PROJECTS.push(p);
+          return p;
+      }
+  }
+
+  // --- SWAPS ---
+
+  async getSwapsForUser(userId: string): Promise<Swap[]> {
+      if (isFirebaseReady()) {
+          // Firestore requires composite index for 'OR' queries usually, doing two queries is safer without index
+          const q1 = query(collection(db, 'swaps'), where('requesterId', '==', userId));
+          const q2 = query(collection(db, 'swaps'), where('receiverId', '==', userId));
+          
+          const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+          const swaps = new Map();
+          snap1.forEach(d => swaps.set(d.id, { id: d.id, ...convertTimestamps(d.data()) }));
+          snap2.forEach(d => swaps.set(d.id, { id: d.id, ...convertTimestamps(d.data()) }));
+          
+          return Array.from(swaps.values()) as Swap[];
+      }
+      return MOCK_SWAPS.filter(s => s.requesterId === userId || s.receiverId === userId);
+  }
+
+  async createSwapRequest(requesterId: string, receiverId: string, requestedId: string, offeredId: string, isProject: boolean = false, deadline?: Date): Promise<Swap | null> {
+      const user = this.getCurrentUser();
+      if (!user || user.coins < 1) return null;
+
+      await this.addCoins(-1);
+
+      const newSwap: any = {
+          requesterId,
+          receiverId,
+          type: isProject ? SwapType.PROJECT : SwapType.SKILL,
+          status: SwapStatus.PENDING,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          messages: [],
+          ...(isProject ? { offeredProjectId: offeredId, requestedProjectId: requestedId, deadline } : { offeredSkillId: offeredId, requestedSkillId: requestedId })
+      };
+      
+      const msg: Message = {
+          id: `msg_${Date.now()}`,
+          senderId: requesterId,
+          text: `LOG: New Request Sent`,
+          timestamp: new Date(),
+          type: 'swap_request',
+          status: 'sent',
+          swapRequestId: 'temp' 
+      };
+      newSwap.messages.push(msg);
+
+      if (isFirebaseReady()) {
+          const docRef = await addDoc(collection(db, 'swaps'), newSwap);
+          // Update the message id which links to swap
+          // Not critical for now
+          return { id: docRef.id, ...newSwap } as Swap;
+      } else {
+          const s = { ...newSwap, id: `swap_${Date.now()}` } as Swap;
+          s.messages[0].swapRequestId = s.id;
+          MOCK_SWAPS.push(s);
+          return s;
+      }
+  }
+
+  async createProjectSwapRequest(reqId: string, recId: string, reqPId: string, offPId: string, dl: Date) {
+      return this.createSwapRequest(reqId, recId, reqPId, offPId, true, dl);
+  }
+
+  async sendMessage(swapId: string, senderId: string, text: string, imageUrl?: string): Promise<Message> {
+      const newMessage: Message = {
+          id: `msg_${Date.now()}_${Math.random()}`,
+          senderId,
+          text,
+          type: senderId === 'system' ? 'system' : (imageUrl ? 'image' : 'text'),
+          imageUrl,
+          timestamp: new Date(),
+          status: 'sent'
+      };
+      
+      if (isFirebaseReady()) {
+          const swapRef = doc(db, 'swaps', swapId);
+          await updateDoc(swapRef, {
+              messages: arrayUnion(newMessage),
+              updatedAt: new Date()
+          });
+      } else {
+          const swap = MOCK_SWAPS.find(s => s.id === swapId);
+          if (!swap) throw new Error("Swap not found");
+          swap.messages.push(newMessage);
+          swap.updatedAt = new Date();
+      }
+      return newMessage;
+  }
+
+  async acceptSwap(swapId: string): Promise<{ success: boolean, message: string }> {
+      if (isFirebaseReady()) {
+          await updateDoc(doc(db, 'swaps', swapId), {
+              status: SwapStatus.ACCEPTED,
+              updatedAt: new Date()
+          });
+          await this.sendMessage(swapId, 'system', 'Swap Accepted! Locked until completion.');
+          return { success: true, message: 'Accepted' };
+      } else {
+          const swap = MOCK_SWAPS.find(s => s.id === swapId);
+          if (swap) {
+              swap.status = SwapStatus.ACCEPTED;
+              swap.updatedAt = new Date();
+              await this.sendMessage(swapId, 'system', 'Swap Accepted! Locked until completion.');
+              return { success: true, message: 'Accepted' };
+          }
+      }
+      return { success: false, message: 'Failed' };
+  }
+
+  async declineSwap(swapId: string) {
+      if (isFirebaseReady()) {
+          await updateDoc(doc(db, 'swaps', swapId), {
+              status: SwapStatus.DECLINED,
+              updatedAt: new Date()
+          });
+          await this.sendMessage(swapId, 'system', 'Swap Request Declined.');
+      } else {
+          const swap = MOCK_SWAPS.find(s => s.id === swapId);
+          if (swap) {
+              swap.status = SwapStatus.DECLINED;
+              swap.updatedAt = new Date();
+              await this.sendMessage(swapId, 'system', 'Swap Request Declined.');
           }
       }
   }
 
-  getUserById(id: string): User | undefined {
-      return this.users.find(u => u.id === id);
+  async completeSwap(swapId: string, proofUrl: string, note: string) {
+      if (isFirebaseReady()) {
+           const swapSnap = await getDoc(doc(db, 'swaps', swapId));
+           if (!swapSnap.exists()) return;
+           const swap = swapSnap.data() as Swap;
+
+           const updates: any = {
+               completionProof: proofUrl,
+               completionNote: note,
+               updatedAt: new Date()
+           };
+
+           if (swap.type === SwapType.PROJECT) {
+                updates.status = SwapStatus.IN_REVIEW;
+                await updateDoc(doc(db, 'swaps', swapId), updates);
+                await this.sendMessage(swapId, 'system', 'Project file submitted! Waiting for review.');
+           } else {
+                updates.status = SwapStatus.COMPLETED;
+                await updateDoc(doc(db, 'swaps', swapId), updates);
+                await this.sendMessage(swapId, 'system', 'Swap Completed! +100 Points.');
+                await this.awardPoints(swap.requesterId, 100);
+                await this.awardPoints(swap.receiverId, 100);
+           }
+      } else {
+          const swap = MOCK_SWAPS.find(s => s.id === swapId);
+          if (!swap) return;
+
+          swap.completionProof = proofUrl;
+          swap.completionNote = note;
+          swap.updatedAt = new Date();
+
+          if (swap.type === SwapType.PROJECT) {
+              swap.status = SwapStatus.IN_REVIEW;
+              await this.sendMessage(swapId, 'system', 'Project file submitted! Waiting for review.');
+          } else {
+              swap.status = SwapStatus.COMPLETED;
+              await this.sendMessage(swapId, 'system', 'Swap Completed! +100 Points.');
+              await this.awardPoints(swap.requesterId, 100);
+              await this.awardPoints(swap.receiverId, 100);
+          }
+      }
   }
 
-  getSkillById(id: string): Skill | undefined {
-      return this.skills.find(s => s.id === id);
+  async submitReview(swapId: string, rating: number, comment: string) {
+      if (isFirebaseReady()) {
+           const swapSnap = await getDoc(doc(db, 'swaps', swapId));
+           if (!swapSnap.exists()) return;
+           const swap = swapSnap.data() as Swap;
+          
+           await updateDoc(doc(db, 'swaps', swapId), {
+               rating,
+               reviewComment: comment,
+               status: SwapStatus.COMPLETED,
+               updatedAt: new Date()
+           });
+
+           await this.sendMessage(swapId, 'system', `Project Rated ${rating}/5 Stars.`);
+           await this.awardPoints(swap.requesterId, 100);
+           await this.awardPoints(swap.receiverId, 100);
+      } else {
+          const swap = MOCK_SWAPS.find(s => s.id === swapId);
+          if (!swap) return;
+          
+          swap.rating = rating;
+          swap.reviewComment = comment;
+          swap.status = SwapStatus.COMPLETED;
+          swap.updatedAt = new Date();
+
+          await this.sendMessage(swapId, 'system', `Project Rated ${rating}/5 Stars.`);
+          await this.awardPoints(swap.requesterId, 100);
+          await this.awardPoints(swap.receiverId, 100);
+      }
+  }
+
+  private async awardPoints(userId: string, amount: number) {
+      const user = await this.getUserById(userId);
+      if (user) {
+          await this.updateUser(userId, { points: (user.points || 0) + amount });
+      }
   }
 }
 
-export const store = new MockStore();
+export const store = new StoreService();

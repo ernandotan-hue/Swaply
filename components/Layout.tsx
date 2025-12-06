@@ -1,7 +1,8 @@
-import React from 'react';
-import { Home, MessageSquare, User, Search, PlusCircle, LogOut, LogIn, BarChart3 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Home, MessageSquare, User, Search, PlusCircle, LogOut, LogIn, BarChart3, Briefcase, Cloud, Database } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { store } from '../services/mockStore';
+import { isConfigured } from '../services/firebaseConfig';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -10,14 +11,20 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const currentUser = store.getCurrentUser();
+  const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
+
+  useEffect(() => {
+      const unsub = store.subscribe((u: any) => setCurrentUser(u));
+      return unsub;
+  }, []);
 
   const isActive = (path: string) => location.pathname === path;
 
   // Filter nav items for guests
   const allNavItems = [
     { icon: Home, label: 'Home', path: '/', public: true },
-    { icon: Search, label: 'Explore', path: '/search', public: true },
+    { icon: Search, label: 'Explore Skills', path: '/search', public: true },
+    { icon: Briefcase, label: 'Project Swap', path: '/projects', public: true },
     { icon: BarChart3, label: 'My Progress', path: '/progress', public: false },
     { icon: MessageSquare, label: 'Messages', path: '/messages', public: false },
     { icon: User, label: 'Profile', path: '/profile', public: false },
@@ -27,8 +34,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     ? allNavItems 
     : allNavItems.filter(item => item.public);
 
-  const handleLogout = () => {
-      store.logout();
+  const handleLogout = async () => {
+      await store.logout();
       navigate('/login');
   };
 
@@ -71,8 +78,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                  <PlusCircle className="w-5 h-5" />
                  Add Skill
              </Link>
+             <Link 
+                to={currentUser ? "/add-project" : "/login"}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${isActive('/add-project') ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}
+             >
+                 <Briefcase className="w-5 h-5" />
+                 Add Project
+             </Link>
           </div>
         </nav>
+
+        <div className="px-6 py-2">
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${isConfigured ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-amber-50 text-amber-700 border border-amber-100'}`}>
+                {isConfigured ? <Cloud className="w-3 h-3" /> : <Database className="w-3 h-3" />}
+                {isConfigured ? 'Connected to Cloud' : 'Demo Mode (Local)'}
+            </div>
+        </div>
 
         <div className="p-4">
              {currentUser ? (
