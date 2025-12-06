@@ -1,25 +1,30 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp as _initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAnalytics } from "firebase/analytics";
 
+// @ts-ignore
+const initializeApp = _initializeApp;
+
 // --- INSTRUCTIONS ---
-// 1. Go to console.firebase.google.com
-// 2. Create a project & add a Web App
-// 3. Copy the config values and paste them into MANUAL_CONFIG below
-//    OR set them in your environment variables (.env file)
+// 1. Go to https://console.firebase.google.com
+// 2. Create a project and enable "Authentication" (Email/Password) and "Firestore Database".
+// 3. In Project Settings, look for the "SDK Setup and Configuration" (Web) section.
+// 4. Copy the values and paste them inside the quotes below.
+
 const MANUAL_CONFIG = {
-  apiKey: "", 
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
-  measurementId: ""
+  apiKey: "AIzaSyBVnsl_5Bk9s1ot-Mu178SS5bQNNSZ9Luw",
+  authDomain: "swaply-1085e.firebaseapp.com",
+  databaseURL: "https://swaply-1085e-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "swaply-1085e",
+  storageBucket: "swaply-1085e.firebasestorage.app",
+  messagingSenderId: "834251447524",
+  appId: "1:834251447524:web:35ad02db2db77a80b960f1",
+  measurementId: "G-WRBS55ZDX1"
 };
 
-// Safe environment variable access supporting multiple prefixes (Vite, CRA, etc)
+// Safe environment variable access supporting multiple prefixes
 const getEnv = (key: string): string => {
     try {
         if (typeof process !== 'undefined' && process.env) {
@@ -31,6 +36,7 @@ const getEnv = (key: string): string => {
     return '';
 };
 
+// Try to get config from Environment Variables first
 const envConfig = {
   apiKey: getEnv("FIREBASE_API_KEY"),
   authDomain: getEnv("FIREBASE_AUTH_DOMAIN"),
@@ -41,10 +47,10 @@ const envConfig = {
   measurementId: getEnv("FIREBASE_MEASUREMENT_ID")
 };
 
-// Determine which config to use
-const firebaseConfig = envConfig.apiKey ? envConfig : MANUAL_CONFIG;
+// Determine which config to use. 
+// If Environment variables are missing, we fall back to MANUAL_CONFIG.
+const firebaseConfig = (envConfig.apiKey && envConfig.apiKey.length > 0) ? envConfig : MANUAL_CONFIG;
 
-// Default mocks to prevent white screen if config is missing
 let app: any = {};
 let auth: any = { 
     currentUser: null, 
@@ -73,12 +79,13 @@ try {
                  console.warn("Analytics failed to init");
              }
         }
-        console.log("Firebase initialized successfully");
+        console.log("✅ Firebase connected to project:", firebaseConfig.projectId);
     } else {
-        console.log("Firebase keys missing. Running in DEMO MODE (Mock Data).");
+        console.warn("⚠️ Firebase keys missing in MANUAL_CONFIG. App running in DEMO MODE (Local Storage only).");
+        console.warn("   Data will NOT sync between devices.");
     }
 } catch (error) {
-    console.error("Firebase Initialization Error:", error);
+    console.error("❌ Firebase Initialization Error:", error);
 }
 
 export { app, auth, db, storage, analytics };

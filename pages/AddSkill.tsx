@@ -1,46 +1,58 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, ChevronLeft, CheckCircle } from 'lucide-react';
+import { Upload, ChevronLeft, CheckCircle, Loader } from 'lucide-react';
 import { store } from '../services/mockStore';
 import { SkillCategory, SkillLevel } from '../types';
 
 const AddSkill: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState('');
   
   const [formData, setFormData] = useState({
       title: '',
       description: '',
       category: SkillCategory.OTHER,
       level: SkillLevel.BEGINNER,
-      experience: 0,
-      image: ''
+      experience: 0
   });
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-          // Simulate upload
-          setFormData({ ...formData, image: URL.createObjectURL(file) });
+          setImageFile(file);
+          setPreviewUrl(URL.createObjectURL(file));
       }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       const user = store.getCurrentUser();
       if (!user) return;
 
       setLoading(true);
       
-      // Simulate API call
-      setTimeout(() => {
-          store.addSkill(user.id, {
+      try {
+          let imageUrl = 'https://picsum.photos/400/300';
+          
+          if (imageFile) {
+              const path = `skills/${user.id}/${Date.now()}_${imageFile.name}`;
+              imageUrl = await store.uploadFile(imageFile, path);
+          }
+
+          await store.addSkill(user.id, {
               ...formData,
-              image: formData.image || 'https://picsum.photos/400/300'
+              image: imageUrl
           });
-          setLoading(false);
+          
           navigate('/profile');
-      }, 1000);
+      } catch (error) {
+          console.error("Failed to add skill:", error);
+          alert("Could not add skill. Check your connection or permissions.");
+      } finally {
+          setLoading(false);
+      }
   };
 
   return (
@@ -117,9 +129,9 @@ const AddSkill: React.FC = () => {
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Proof / Portfolio Image</label>
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:bg-slate-50 transition cursor-pointer relative overflow-hidden group">
                     <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                    {formData.image ? (
+                    {previewUrl ? (
                         <div className="relative">
-                            <img src={formData.image} className="h-48 w-full object-cover rounded-lg" />
+                            <img src={previewUrl} className="h-48 w-full object-cover rounded-lg" />
                             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
                                 <span className="text-white font-medium">Click to change</span>
                             </div>
@@ -140,7 +152,7 @@ const AddSkill: React.FC = () => {
                 disabled={loading}
                 className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
             >
-                {loading ? 'Submitting...' : (
+                {loading ? <><Loader className="w-5 h-5 animate-spin" /> Uploading & Saving...</> : (
                     <>
                         <CheckCircle className="w-5 h-5" /> Submit for Verification
                     </>

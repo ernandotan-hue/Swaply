@@ -1,16 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { store } from '../services/mockStore';
-import { MapPin, Star, Clock, Plus, Settings, Trophy, ShieldCheck, Award, Wallet, Timer, ShoppingCart, X, Check, Edit2, Camera, Briefcase } from 'lucide-react';
+import { MapPin, Star, Clock, Plus, Settings, Trophy, ShieldCheck, Award, Wallet, Timer, ShoppingCart, X, Check, Edit2, Camera, Briefcase, Loader } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Skill, SkillStatus } from '../types';
 
 const Profile: React.FC = () => {
   const [currentUser, setCurrentUser] = useState(store.getCurrentUser());
-  const [timeLeft, setTimeLeft] = useState<string>('');
   const [showShop, setShowShop] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [buying, setBuying] = useState(false);
   const [userSkills, setUserSkills] = useState<Skill[]>([]);
+  
+  // Edit State
+  const [saving, setSaving] = useState(false);
+  const [newAvatarFile, setNewAvatarFile] = useState<File | null>(null);
+  const [editForm, setEditForm] = useState({
+      name: '',
+      jobTitle: '',
+      location: '',
+      bio: '',
+      avatar: ''
+  });
 
   // Subscribe to changes
   useEffect(() => {
@@ -29,15 +39,6 @@ const Profile: React.FC = () => {
       fetchSkills();
   }, [currentUser, showEditProfile]);
 
-  // Edit State
-  const [editForm, setEditForm] = useState({
-      name: '',
-      jobTitle: '',
-      location: '',
-      bio: '',
-      avatar: ''
-  });
-
   // Load user data into edit form when modal opens
   useEffect(() => {
       if (currentUser) {
@@ -55,7 +56,6 @@ const Profile: React.FC = () => {
 
   const handleVerify = async (skillId: string) => {
       await store.verifySkill(skillId);
-      // Refresh list
       if (currentUser) {
           const s = await store.getUserSkills(currentUser.id);
           setUserSkills(s);
@@ -75,21 +75,38 @@ const Profile: React.FC = () => {
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-          const url = URL.createObjectURL(file);
-          setEditForm({ ...editForm, avatar: url });
+          setNewAvatarFile(file);
+          // Show local preview immediately
+          setEditForm({ ...editForm, avatar: URL.createObjectURL(file) });
       }
   };
 
   const saveProfile = async (e: React.FormEvent) => {
       e.preventDefault();
-      await store.updateUser(currentUser.id, {
-          name: editForm.name,
-          jobTitle: editForm.jobTitle,
-          location: editForm.location,
-          bio: editForm.bio,
-          avatar: editForm.avatar
-      });
-      setShowEditProfile(false);
+      setSaving(true);
+      
+      try {
+          let avatarUrl = editForm.avatar;
+          // If a new file was selected, upload it first
+          if (newAvatarFile) {
+              const path = `avatars/${currentUser.id}/${Date.now()}_${newAvatarFile.name}`;
+              avatarUrl = await store.uploadFile(newAvatarFile, path);
+          }
+
+          await store.updateUser(currentUser.id, {
+              name: editForm.name,
+              jobTitle: editForm.jobTitle,
+              location: editForm.location,
+              bio: editForm.bio,
+              avatar: avatarUrl
+          });
+          setShowEditProfile(false);
+      } catch (e) {
+          console.error("Save failed", e);
+          alert("Failed to save profile.");
+      } finally {
+          setSaving(false);
+      }
   };
 
   return (
@@ -295,8 +312,12 @@ const Profile: React.FC = () => {
                             />
                         </div>
                         
-                        <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition">
-                            Save Changes
+                        <button 
+                            type="submit" 
+                            disabled={saving}
+                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                        >
+                            {saving ? <><Loader className="w-4 h-4 animate-spin" /> Saving...</> : 'Save Changes'}
                         </button>
                     </form>
                 </div>

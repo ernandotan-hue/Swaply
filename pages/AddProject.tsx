@@ -1,36 +1,54 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, FolderPlus, UploadCloud } from 'lucide-react';
+import { ChevronLeft, FolderPlus, UploadCloud, Loader } from 'lucide-react';
 import { store } from '../services/mockStore';
 import { SkillCategory } from '../types';
 
 const AddProject: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [projectFile, setProjectFile] = useState<File | null>(null);
   
   const [formData, setFormData] = useState({
       title: '',
       description: '',
       requirements: '',
-      category: SkillCategory.OTHER,
-      fileUrl: ''
+      category: SkillCategory.OTHER
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          setProjectFile(file);
+      }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       const user = store.getCurrentUser();
       if (!user) return;
 
       setLoading(true);
-      setTimeout(() => {
-          store.addProject(user.id, {
+
+      try {
+          let fileUrl = '#';
+          if (projectFile) {
+              const path = `projects/${user.id}/${Date.now()}_${projectFile.name}`;
+              fileUrl = await store.uploadFile(projectFile, path);
+          }
+
+          await store.addProject(user.id, {
               ...formData,
-              fileUrl: formData.fileUrl || '#' // Mock file
+              fileUrl: fileUrl
           });
-          setLoading(false);
+          
           navigate('/projects');
-      }, 1000);
+      } catch (error) {
+          console.error("Failed to add project:", error);
+          alert("Could not post project. Check your permissions.");
+      } finally {
+          setLoading(false);
+      }
   };
 
   return (
@@ -93,10 +111,20 @@ const AddProject: React.FC = () => {
 
             <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Project Files</label>
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:bg-slate-50 transition cursor-pointer flex flex-col items-center gap-2">
-                    <UploadCloud className="w-8 h-8 text-slate-300" />
-                    <span className="text-slate-500">Click to upload .zip, .pdf, or .docx</span>
-                    <span className="text-xs text-slate-400">(Mock: File will be simulated)</span>
+                <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:bg-slate-50 transition cursor-pointer flex flex-col items-center gap-2 relative">
+                    <input type="file" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                    {projectFile ? (
+                        <div className="flex items-center gap-2 text-indigo-600 font-bold">
+                            <UploadCloud className="w-8 h-8" />
+                            <span>{projectFile.name}</span>
+                        </div>
+                    ) : (
+                        <>
+                            <UploadCloud className="w-8 h-8 text-slate-300" />
+                            <span className="text-slate-500">Click to upload .zip, .pdf, or .docx</span>
+                            <span className="text-xs text-slate-400">Supported formats for download by partner</span>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -105,7 +133,7 @@ const AddProject: React.FC = () => {
                 disabled={loading}
                 className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
             >
-                {loading ? 'Posting...' : (
+                {loading ? <><Loader className="w-5 h-5 animate-spin" /> Uploading...</> : (
                     <>
                         <FolderPlus className="w-5 h-5" /> Post Project
                     </>

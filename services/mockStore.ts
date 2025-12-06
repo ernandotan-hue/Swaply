@@ -1,7 +1,8 @@
 import { User, Skill, Swap, SwapStatus, SkillCategory, Message, SkillLevel, SkillStatus, Project, SwapType } from '../types';
-import { auth, db } from './firebaseConfig';
+import { auth, db, storage } from './firebaseConfig';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, Timestamp, arrayUnion, orderBy } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // --- Helper Functions ---
 const isFirebaseReady = () => {
@@ -111,9 +112,11 @@ class StoreService {
                      const docSnap = await getDoc(docRef);
                      if (docSnap.exists()) {
                          this.currentUser = { id: docSnap.id, ...convertTimestamps(docSnap.data()) } as User;
+                     } else {
+                         console.warn("User authenticated but no profile found in Firestore.");
                      }
                  } catch (e) {
-                     console.error("Error fetching user profile:", e);
+                     console.error("Error fetching user profile from Firestore:", e);
                  }
              } else {
                  this.currentUser = null;
@@ -149,6 +152,25 @@ class StoreService {
       return this.currentUser;
   }
 
+  async uploadFile(file: File, path: string): Promise<string> {
+      if (isFirebaseReady() && storage) {
+          try {
+              const storageRef = ref(storage, path);
+              await uploadBytes(storageRef, file);
+              const url = await getDownloadURL(storageRef);
+              return url;
+          } catch (e: any) {
+              console.error("Upload failed:", e);
+              // Fallback for when Storage is not enabled or rules fail
+              console.warn("⚠️ Using local URL fallback. Enable Firebase Storage for cross-device images.");
+              return URL.createObjectURL(file);
+          }
+      } else {
+          // Mock mode fallback
+          return URL.createObjectURL(file);
+      }
+  }
+
   async login(email: string, password: string): Promise<{ success: boolean, user?: User, message?: string }> {
       if (isFirebaseReady()) {
           try {
@@ -160,9 +182,10 @@ class StoreService {
                   this.notifyListeners();
                   return { success: true, user: this.currentUser };
               } else {
-                  return { success: false, message: 'User profile not found.' };
+                  return { success: false, message: 'User profile not found in database.' };
               }
           } catch (e: any) {
+              console.error("Firebase Login Error:", e);
               return { success: false, message: e.message };
           }
       } else {
@@ -180,37 +203,45 @@ class StoreService {
   }
 
   async register(data: { name: string; email: string; bio: string; location: string }): Promise<User> {
-       if (isFirebaseReady()) {
-           const cred = await createUserWithEmailAndPassword(auth, data.email, 'password123'); // Simple default password for demo flow or needs param
-           // Note: In a real app, pass password from form. For now, assuming standard flow.
-           
-           const newUser: User = {
-               id: cred.user.uid,
-               name: data.name,
-               email: data.email,
-               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
-               bio: data.bio,
-               location: data.location,
-               skillsOffered: [],
-               skillsWanted: [],
-               projects: [],
-               rating: 0,
-               reviewCount: 0,
-               isOnline: true,
-               lastSeen: new Date(),
-               points: 50, // Bonus for signup
-               badges: [],
-               coins: 3,
-               nextFreeCoinDate: new Date()
-           };
-           
-           await setDoc(doc(db, 'users', cred.user.uid), newUser);
-           this.currentUser = newUser;
-           this.notifyListeners();
-           return newUser;
-       } else {
-           await new Promise(resolve => setTimeout(resolve, 500));
-           const newUser: User = {
+       return this.registerWithPassword(data, 'password123');
+  }
+  
+  async registerWithPassword(data: { name: string; email: string; bio: string; location: string }, password?: string): Promise<User> {
+      if (isFirebaseReady() && password) {
+          try {
+              const cred = await createUserWithEmailAndPassword(auth, data.email, password);
+              const newUser: User = {
+                   id: cred.user.uid,
+                   name: data.name,
+                   email: data.email,
+                   avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
+                   bio: data.bio,
+                   location: data.location,
+                   skillsOffered: [],
+                   skillsWanted: [],
+                   projects: [],
+                   rating: 0,
+                   reviewCount: 0,
+                   isOnline: true,
+                   lastSeen: new Date(),
+                   points: 50,
+                   badges: [],
+                   coins: 3,
+                   nextFreeCoinDate: new Date()
+               };
+               
+               await setDoc(doc(db, 'users', cred.user.uid), newUser);
+               
+               this.currentUser = newUser;
+               this.notifyListeners();
+               return newUser;
+          } catch (e: any) {
+              console.error("Registration Error (Firebase):", e);
+              throw new Error(`Registration failed: ${e.message}. Check Firestore Rules.`);
+          }
+      } else {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const newUser: User = {
                id: `user_${Date.now()}`,
                name: data.name,
                email: data.email,
@@ -228,44 +259,13 @@ class StoreService {
                badges: [],
                coins: 1,
                nextFreeCoinDate: new Date()
-           };
-           MOCK_USERS.push(newUser);
-           this.currentUser = newUser;
-           localStorage.setItem('swaply_uid', newUser.id);
-           this.notifyListeners();
-           return newUser;
-       }
-  }
-  
-  // Method to support password in register (overloading loosely for JS/TS)
-  async registerWithPassword(data: { name: string; email: string; bio: string; location: string }, password?: string): Promise<User> {
-      if (isFirebaseReady() && password) {
-          const cred = await createUserWithEmailAndPassword(auth, data.email, password);
-           const newUser: User = {
-               id: cred.user.uid,
-               name: data.name,
-               email: data.email,
-               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
-               bio: data.bio,
-               location: data.location,
-               skillsOffered: [],
-               skillsWanted: [],
-               projects: [],
-               rating: 0,
-               reviewCount: 0,
-               isOnline: true,
-               lastSeen: new Date(),
-               points: 50,
-               badges: [],
-               coins: 3,
-               nextFreeCoinDate: new Date()
-           };
-           await setDoc(doc(db, 'users', cred.user.uid), newUser);
-           this.currentUser = newUser;
-           this.notifyListeners();
-           return newUser;
+          };
+          MOCK_USERS.push(newUser);
+          this.currentUser = newUser;
+          localStorage.setItem('swaply_uid', newUser.id);
+          this.notifyListeners();
+          return newUser;
       }
-      return this.register(data);
   }
 
   async logout() {
@@ -292,7 +292,6 @@ class StoreService {
   async updateUser(userId: string, updates: Partial<User>) {
       if (isFirebaseReady()) {
           await updateDoc(doc(db, 'users', userId), updates);
-          // Local update will happen via listener, but we can optimistically update
           if (this.currentUser?.id === userId) {
               this.currentUser = { ...this.currentUser, ...updates };
               this.notifyListeners();
@@ -311,12 +310,7 @@ class StoreService {
   
   async addCoins(amount: number) {
       if (this.currentUser) {
-          if (isFirebaseReady()) {
-              // Should use transaction/increment in real app
-              await this.updateUser(this.currentUser.id, { coins: (this.currentUser.coins || 0) + amount });
-          } else {
-              await this.updateUser(this.currentUser.id, { coins: (this.currentUser.coins || 0) + amount });
-          }
+          await this.updateUser(this.currentUser.id, { coins: (this.currentUser.coins || 0) + amount });
       }
   }
 
@@ -358,12 +352,13 @@ class StoreService {
           image: skillData.image || 'https://picsum.photos/400/300',
           level: skillData.level || SkillLevel.BEGINNER,
           experience: skillData.experience || 0,
-          status: SkillStatus.PENDING, // Always pending initially
+          status: SkillStatus.PENDING, 
           createdAt: new Date()
       };
 
       if (isFirebaseReady()) {
           const docRef = await addDoc(collection(db, 'skills'), newSkill);
+          console.log("Skill added with ID:", docRef.id);
           return { id: docRef.id, ...newSkill } as Skill;
       } else {
           const s = { ...newSkill, id: `skill_${Date.now()}` } as Skill;
@@ -425,7 +420,6 @@ class StoreService {
 
   async getSwapsForUser(userId: string): Promise<Swap[]> {
       if (isFirebaseReady()) {
-          // Firestore requires composite index for 'OR' queries usually, doing two queries is safer without index
           const q1 = query(collection(db, 'swaps'), where('requesterId', '==', userId));
           const q2 = query(collection(db, 'swaps'), where('receiverId', '==', userId));
           
@@ -469,8 +463,6 @@ class StoreService {
 
       if (isFirebaseReady()) {
           const docRef = await addDoc(collection(db, 'swaps'), newSwap);
-          // Update the message id which links to swap
-          // Not critical for now
           return { id: docRef.id, ...newSwap } as Swap;
       } else {
           const s = { ...newSwap, id: `swap_${Date.now()}` } as Swap;

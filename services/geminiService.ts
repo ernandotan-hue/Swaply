@@ -1,17 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const getApiKey = () => {
-  try {
-    if (typeof process !== "undefined" && process.env) {
-      return process.env.API_KEY || "";
-    }
-  } catch (e) {
-    console.warn("Error accessing process.env");
-  }
-  return "";
-};
-
-const ai = new GoogleGenAI({ apiKey: getApiKey() });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateIcebreaker = async (mySkill: string, theirSkill: string): Promise<string> => {
   try {
